@@ -1,6 +1,7 @@
 import aisuite as ai
 import pandas as pd
-#import time
+import re
+import time
 
 def create_analysis_prompt(article):
     return {
@@ -66,7 +67,7 @@ def zero_prompt_run(articles : pd.DataFrame, models: list, temperature=0.1):
                     temperature=temperature 
                 )
                 resposta = response.choices[0].message.content
-                if resposta.str.contains('YES') or resposta.str.contains('NO'):
+                if isinstance(resposta, str) and re.search(r'^(YES|NO)\b', resposta, re.IGNORECASE):
                     respostas.append({
                         'modelo': model,
                         'artigo': article,
@@ -96,7 +97,7 @@ def zero_prompt_run(articles : pd.DataFrame, models: list, temperature=0.1):
     return df_respostas
 
 
-def weak_supervision_label(articles : pd.DataFrame, models: list, dict_credibility_signals: dict, temperature = 0.1):
+def weak_supervision_label(articles : pd.DataFrame, models: list, dict_credibility_signals: dict, temperature = 0.1, delay = 0):
     client = ai.Client()
     respostas = []
     for index, row in articles.iterrows():
@@ -118,20 +119,16 @@ def weak_supervision_label(articles : pd.DataFrame, models: list, dict_credibili
                         messages=messages,
                         temperature=temperature
                     )
-                    #time.sleep(1)
+                    time.sleep(delay)
 
                     resposta = response.choices[0].message.content
-                    if resposta.str.contains('Yes') or resposta.str.contains('No'):
-                        respostas.append({
-                            'modelo': model,
-                            'artigo': article,
-                            'resposta': resposta,
-                            'label': 'YES\n' if 'Yes' in resposta else 'NO\n'
-                        })
+                    if isinstance(resposta, str) and re.search(r'\b(YES|NO)\b', resposta.upper()):
+                        resposta_final = 'YES\n' if 'YES' in resposta.upper() else 'NO\n'
+                        
                     else:
                         messages.append(create_weak_label_prompt(question, resposta))
 
-                    #time.sleep(1)
+                        time.sleep(delay)
                     
                         response = client.chat.completions.create(
                             model=model,
@@ -140,7 +137,8 @@ def weak_supervision_label(articles : pd.DataFrame, models: list, dict_credibili
                         )
 
                         resposta_final = response.choices[0].message.content
-                        respostas.append({
+                    
+                    respostas.append({
                     'modelo': model,
                     'artigo': article,
                     'sinal_credibilidade': credibility_signal,
