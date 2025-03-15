@@ -44,7 +44,7 @@ def create_weak_label_prompt(question, resposta):
     }
 
 
-def zero_prompt_run(articles : pd.DataFrame, models: list, temperature=0.1):
+def zero_prompt_run(articles : pd.DataFrame, models: list, temperature=0.1, delay = 0):
     client = ai.Client()
     respostas = []
     for index, row in articles.iterrows():
@@ -60,7 +60,8 @@ def zero_prompt_run(articles : pd.DataFrame, models: list, temperature=0.1):
                     temperature=temperature 
                 )
                 resposta = response.choices[0].message.content
-                if isinstance(resposta, str) and re.search(r'^(YES|NO)\b', resposta, re.IGNORECASE):
+                time.sleep(delay)
+                if isinstance(resposta, str) and re.search(r'^\**(YES|NO)\b', resposta, re.IGNORECASE):
                     respostas.append({
                         'modelo': model,
                         'artigo': article,
@@ -68,6 +69,7 @@ def zero_prompt_run(articles : pd.DataFrame, models: list, temperature=0.1):
                         'label': 'YES\n' if 'YES' in resposta else 'NO\n'
                     })
                 else:
+                    time.sleep(delay)
                     messages = create_label_prompt(resposta)
                     
                     label = client.chat.completions.create(
@@ -89,8 +91,7 @@ def zero_prompt_run(articles : pd.DataFrame, models: list, temperature=0.1):
     df_respostas = pd.DataFrame(respostas)
     return df_respostas
 
-
-def weak_supervision_label(articles : pd.DataFrame, models: list, dict_credibility_signals: dict, temperature = 0.1, delay = 0):
+def weak_supervision_label_old(articles : pd.DataFrame, models: list, dict_credibility_signals: dict, temperature = 0.1, delay = 0):
     client = ai.Client()
     respostas = []
     for index, row in articles.iterrows():
@@ -145,3 +146,72 @@ def weak_supervision_label(articles : pd.DataFrame, models: list, dict_credibili
         
     df_respostas = pd.DataFrame(respostas)
     return df_respostas
+
+
+import concurrent.futures
+def process_article(index, row, models, dict_credibility_signals, temperature, delay):
+    client = ai.Client()
+    respostas = []
+    article = row['article_content']
+    
+    for model in models:
+        try:
+            for credibility_signal in dict_credibility_signals.keys():
+                messages = create_credibility_signal_prompt(article)
+                question = dict_credibility_signals[credibility_signal].format(organization_name=row['source'])
+                
+                messages.append({"role": "user", "content": question})
+                
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature
+                )
+                
+                time.sleep(delay)
+
+                resposta = response.choices[0].message.content
+                if isinstance(resposta, str) and re.search(r'^\**(YES|NO)\b', resposta.upper()):
+                    resposta_final = 'YES\n' if 'YES' in resposta.upper() else 'NO\n'
+                else:
+                    messages.append(create_weak_label_prompt(question, resposta))
+                    
+                    time.sleep(delay)
+                    
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature
+                    )
+                    
+                    resposta_final = response.choices[0].message.content
+
+                respostas.append({
+                    'modelo': model,
+                    'artigo': article,
+                    'sinal_credibilidade': credibility_signal,
+                    'pergunta': question,
+                    'resposta': resposta,
+                    'label': resposta_final
+                })
+        except Exception as e:
+            print(f"Erro ao processar o artigo {index}, no modelo {model}: {e}")
+
+    return respostas
+
+def weak_supervision_label(articles: pd.DataFrame, models: list, dict_credibility_signals: dict, temperature=0.1, delay=0, max_workers=5):
+    resultados = []
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(process_article, index, row, models, dict_credibility_signals, temperature, delay)
+            for index, row in articles.iterrows()
+        ]
+
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                resultados.extend(future.result())
+            except Exception as e:
+                print(f"Erro ao processar um artigo: {e}")
+
+    return pd.DataFrame(resultados)
