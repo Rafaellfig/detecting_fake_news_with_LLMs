@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from src.utils.api_utils import weak_supervision_label
+from src.utils.api_utils import process_articles_with_callback
 
 
 dict_credibility_signals = {
@@ -19,15 +19,15 @@ noticia = st.text_area("Digite ou cole a notícia aqui:")
 
 origem = st.text_input("Digite de onde essa notícia foi retirada:")
 
-articles = pd.DataFrame({'article_content': [noticia], 'source': [origem]})
 
 # Botão para submeter
 if st.button("Analisar Credibilidade"):
+    articles = pd.DataFrame({'article_content': [noticia], 'source': [origem]})
     if noticia.strip():  # Verifica se a notícia não está vazia
         # Inicia a análise
         with st.spinner('Analisando a credibilidade da notícia...'):
             # Chama a função de análise
-            resultados = weak_supervision_label(articles, models, dict_credibility_signals, temperature=0.1)
+            resultados = process_articles_with_callback(articles, models, dict_credibility_signals, temperature=0.1, max_workers=18)
 
         # Exibe os resultados com ticker
         st.success("Análise concluída!")
