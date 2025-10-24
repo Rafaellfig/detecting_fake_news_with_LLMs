@@ -5,7 +5,8 @@
 
 ## 📋 Visão Geral
 
-Este projeto desenvolve um sistema de detecção de fake news utilizando Large Language Models (LLMs) e análise de sinais de credibilidade. O sistema combina múltiplos modelos de linguagem para extrair características de credibilidade e determinar a veracidade de notícias.
+Este projeto desenvolve um sistema de detecção de fake news utilizando Large Language Models (LLMs) e análise de sinais de credibilidade. O sistema combina múltiplos modelos de linguagem para extrair características de credibilidade e determinar a veracidade de notícias.  
+
 Esse projeto foi criado para o trabalho de conclusão de curso do MBA Data Science e Analytics da USP. O PDF com a versão final desenvolvida se encontra nesse repositório.
 
 ## 🎯 Objetivos
