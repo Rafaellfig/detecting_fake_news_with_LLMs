@@ -215,3 +215,74 @@ def weak_supervision_label(articles: pd.DataFrame, models: list, dict_credibilit
                 print(f"Erro ao processar um artigo: {e}")
 
     return pd.DataFrame(resultados)
+
+
+
+def process_credibility_signal(index, row, model, credibility_signal, dict_credibility_signals, temperature, delay):
+    client = ai.Client()
+    article = row['article_content']
+    
+    # Cria os prompts e define a pergunta formatada
+    messages = create_credibility_signal_prompt(article)
+    question = dict_credibility_signals[credibility_signal].format(organization_name=row['source'])
+    messages.append({"role": "user", "content": question})
+    
+    # Primeira chamada à API
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature
+    )
+    time.sleep(delay)
+    
+    resposta = response.choices[0].message.content
+    # Verifica se a resposta já está no formato "YES" ou "NO"
+    if isinstance(resposta, str) and re.search(r'^\**(YES|NO)\b', resposta.upper()):
+        resposta_final = 'YES\n' if 'YES' in resposta.upper() else 'NO\n'
+    else:
+        # Caso contrário, acrescenta o prompt adicional para obter o rótulo fraco e faz nova chamada
+        messages.append(create_weak_label_prompt(question, resposta))
+        time.sleep(delay)
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature
+        )
+        resposta_final = response.choices[0].message.content
+
+    return {
+        'modelo': model,
+        'artigo': article,
+        'sinal_credibilidade': credibility_signal,
+        'pergunta': question,
+        'resposta': resposta,
+        'label': resposta_final
+    }
+
+def handle_result(future):
+    try:
+        result = future.result()
+        # Processa o resultado imediatamente (aqui, apenas imprime)
+        print("Resultado recebido:", result)
+    except Exception as e:
+        print("Erro no callback:", e)
+
+
+def process_articles_with_callback(articles: pd.DataFrame, models: list, dict_credibility_signals: dict,
+                                   temperature=0.1, delay=0, max_workers=5):
+    futures = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Para cada artigo, para cada modelo e para cada sinal de credibilidade, submete uma tarefa
+        for index, row in articles.iterrows():
+            for model in models:
+                for credibility_signal in dict_credibility_signals.keys():
+                    future = executor.submit(
+                        process_credibility_signal,
+                        index, row, model, credibility_signal,
+                        dict_credibility_signals, temperature, delay
+                    )
+                    # Adiciona o callback para tratar o resultado imediatamente
+                    future.add_done_callback(handle_result)
+                    futures.append(future)
+        # Se desejar, pode aguardar que todas as tarefas terminem
+        concurrent.futures.wait(futures)
